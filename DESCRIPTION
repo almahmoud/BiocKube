@@ -1,0 +1,24 @@
+Package: BiocKube
+Title: Run BiocParallel Workers and BiocJobs on Kubernetes
+Version: 0.99.0
+Authors@R:
+    person("Alexandru", "Mahmoud", email = "almahmoudresearch@gmail.com",
+           role = c("aut", "cre"),
+           comment = c(ORCID = "0000-0002-3779-492X"))
+Description: Dispatches work from an R session to a Kubernetes cluster.
+    KubeParam is a BiocParallel backend whose workers run as pods, so
+    bplapply() and related functions evaluate on the cluster. submitJob()
+    runs jobs declared with BiocJobs as Kubernetes Jobs, uploading local
+    inputs and downloading outputs. The R session needs only API access to
+    the cluster; pods never connect back to it.
+License: Artistic-2.0
+URL: https://github.com/almahmoud/BiocKube
+BugReports: https://github.com/almahmoud/BiocKube/issues
+Encoding: UTF-8
+Depends:
+    R (>= 4.4.0),
+    BiocParallel (>= 1.40.0)
+biocViews: Infrastructure, Software
+Config/testthat/edition: 3
+Roxygen: list(markdown = TRUE)
+Config/roxygen2/version: 8.1.0
