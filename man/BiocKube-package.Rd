@@ -6,7 +6,10 @@
 \alias{BiocKube-package}
 \title{BiocKube: Run BiocParallel Workers and BiocJobs on Kubernetes}
 \description{
-Dispatches work from an R session to a Kubernetes cluster. KubeParam is a BiocParallel backend whose workers run as pods, so bplapply() and related functions evaluate on the cluster. submitJob() runs jobs declared with BiocJobs as Kubernetes Jobs, uploading local inputs and downloading outputs. The R session needs only API access to the cluster; pods never connect back to it.
+Runs work from an R session on a Kubernetes cluster.
+\code{\link[=KubeParam]{KubeParam()}} is a BiocParallel backend whose workers
+are pods, and \code{submitJob()} runs a job declared with
+BiocJobs as a Kubernetes Job.
 }
 \seealso{
 Useful links:

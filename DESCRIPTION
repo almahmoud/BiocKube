@@ -20,8 +20,11 @@ Depends:
     BiocParallel (>= 1.40.0)
 Imports:
     curl,
-    kube
+    kube,
+    methods,
+    utils
 Suggests:
+    BiocManager,
     openssl,
     processx,
     testthat (>= 3.0.0),
