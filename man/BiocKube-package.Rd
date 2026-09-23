@@ -8,7 +8,7 @@
 \description{
 Runs work from an R session on a Kubernetes cluster.
 \code{\link[=KubeParam]{KubeParam()}} is a BiocParallel backend whose workers
-are pods, and \code{submitJob()} runs a job declared with
+are pods, and \code{\link[=submitJob]{submitJob()}} runs a job declared with
 BiocJobs as a Kubernetes Job.
 }
 \seealso{

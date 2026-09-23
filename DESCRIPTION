@@ -20,10 +20,12 @@ Depends:
     BiocParallel (>= 1.40.0)
 Imports:
     curl,
+    jsonlite,
     kube,
     methods,
     utils
 Suggests:
+    BiocJobs,
     BiocManager,
     openssl,
     processx,
