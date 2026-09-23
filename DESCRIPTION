@@ -18,9 +18,13 @@ Encoding: UTF-8
 Depends:
     R (>= 4.4.0),
     BiocParallel (>= 1.40.0)
+Imports:
+    curl,
+    kube
 Suggests:
     processx,
-    testthat (>= 3.0.0)
+    testthat (>= 3.0.0),
+    webfakes
 biocViews: Infrastructure, Software
 Config/testthat/edition: 3
 Roxygen: list(markdown = TRUE)
