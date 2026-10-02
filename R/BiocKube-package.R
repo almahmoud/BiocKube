@@ -2,7 +2,7 @@
 #' Runs work from an R session on a Kubernetes cluster.
 #' [KubeParam()] is a BiocParallel backend whose workers
 #' are pods, and [submitJob()] runs a job declared with
-#' BiocJobs as a Kubernetes Job.
+#' BiocJobs as a Kubernetes Job. See `vignette("BiocKube")`.
 #'
 #' @keywords internal
 #' @import BiocParallel

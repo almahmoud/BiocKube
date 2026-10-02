@@ -27,11 +27,15 @@ Imports:
 Suggests:
     BiocJobs,
     BiocManager,
+    BiocStyle,
+    knitr,
     openssl,
     processx,
+    rmarkdown,
     testthat (>= 3.0.0),
     webfakes,
     withr
+VignetteBuilder: knitr
 biocViews: Infrastructure, Software
 Config/testthat/edition: 3
 Roxygen: list(markdown = TRUE)

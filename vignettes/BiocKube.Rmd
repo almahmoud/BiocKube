@@ -1,0 +1,234 @@
+---
+title: "Running BiocParallel and BiocJobs work on Kubernetes"
+author: "Alexandru Mahmoud"
+date: "`r BiocStyle::doc_date()`"
+package: "`r BiocStyle::pkg_ver('BiocKube')`"
+output: BiocStyle::html_document
+vignette: >
+  %\VignetteIndexEntry{Running BiocParallel and BiocJobs work on Kubernetes}
+  %\VignetteEngine{knitr::rmarkdown}
+  %\VignetteEncoding{UTF-8}
+---
+
+```{r setup, include = FALSE}
+knitr::opts_chunk$set(collapse = TRUE, comment = "#>")
+```
+
+# Overview
+
+*BiocKube* sends work from an R session to a Kubernetes
+cluster. `KubeParam()` is a `r Biocpkg("BiocParallel")` backend whose
+workers are pods, and `submitJob()` runs a job declared with *BiocJobs* as
+a Kubernetes Job. Chunks that need a cluster are shown but not evaluated.
+
+```{r load, message = FALSE}
+library(BiocKube)
+```
+
+# Connecting to a cluster
+
+BiocKube connects through the *kube* package: by default with the current
+kubeconfig context (`KUBECONFIG`, else `~/.kube/config`) and its namespace,
+else `"default"`, or with the pod's service account inside a cluster.
+`kube::kube_use_context()` changes the default; the `client` argument sets
+the connection for one param or job.
+
+```{r connect, eval = FALSE}
+kube::kube_contexts()
+kube::kube_use_context("analysis", namespace = "bioc")
+client <- kube::kube_client(context = "analysis", namespace = "bioc")
+param <- KubeParam(workers = 4, client = client)
+```
+
+# KubeParam
+
+## Arguments
+
+```{r param}
+image <- "ghcr.io/bioconductor/bioconductor:RELEASE_3_23"
+param <- KubeParam(workers = 4, cpu = 1, memory = 4, image = image)
+param
+```
+
+- `workers`: number of pods, 2 by default.
+- `image`: defaults to the Bioconductor image of the session's version.
+- `namespace`, `client`: where the pods run.
+- `cpu`, `memory`: request and limit of each pod, in cores and gibibytes
+  or as quantities such as `"500m"` and `"4Gi"`.
+- `packages`, `env`: packages to install and variables to set in the pods.
+- `idleTimeout`: seconds without a request after which a pod exits.
+- `startTimeout`: seconds `bpstart()` waits for the pods.
+
+The other arguments are those of every `BiocParallelParam`, such as
+`stop.on.error`, `timeout` and `RNGseed`; see `?BiocParallelParam`.
+Creating a param does not contact the cluster.
+
+## Lifecycle
+
+```{r lifecycle, eval = FALSE}
+bpstart(param)
+res <- bplapply(1:8, function(i) Sys.info()[["nodename"]], BPPARAM = param)
+res <- bpmapply(function(x, y) x + y, 1:4, 5:8, BPPARAM = param)
+bpstop(param)
+```
+
+`bpstart()` creates the pods and waits until they are ready; `bpstop()`
+deletes them, and also runs when a started param is garbage collected or
+R exits. A param that is not started is started and stopped by each
+`bplapply()` call, which then creates the pods every time.
+`register(param)` makes it the default for calls without `BPPARAM`.
+
+Pods exit after `idleTimeout` seconds without a request, but not while
+they run a task; restart a param whose pods have exited with `bpstop()`
+and `bpstart()`. The script
+`system.file("examples", "bplapply.R", package = "BiocKube")` runs these
+steps on two small pods.
+
+## Errors and BPREDO
+
+`bpstart()` fails as soon as a pod cannot become ready, for example
+because its image does not exist, with the reason and the last lines of
+the pod's log, and removes what it created.
+
+Errors raised by `FUN` behave as with any BiocParallel backend: `bptry()`
+returns the partial results and `BPREDO` evaluates again only the elements
+that failed.
+
+```{r bpredo, eval = FALSE}
+X <- list(1, "a", 3)
+res <- bptry(bplapply(X, log, BPPARAM = param))
+bpok(res)
+X[[2]] <- 2
+res <- bplapply(X, log, BPREDO = res, BPPARAM = param)
+```
+
+A pod that is deleted, fails, exits, or cannot be reached for two minutes
+while the API server reports it running is lost. The elements it held fail
+with an error of class `worker_comm_error`, and `BPREDO` evaluates them
+again on the pods that are left.
+
+## Resources, images and packages
+
+`cpu` and `memory` set both the request and the limit of each pod. A task
+that exceeds the memory limit fails. On cgroup v2 nodes Kubernetes then
+kills every process of the pod, and the pod is lost as described above.
+On a cluster that adds nodes on demand, `startTimeout` must cover the
+time a new node takes.
+
+The image should have the session's versions of R and BiocParallel, as
+tasks and results travel serialized; `bpstart()` warns when they differ.
+Pods install BiocParallel and `packages` with BiocManager at startup when
+the image lacks them, which needs network access to CRAN and Bioconductor
+and time within `startTimeout`. `FUN` should load the packages it uses
+with `library()` or call them as `pkg::fun()`.
+
+```{r packages}
+KubeParam(image = image, packages = c("DESeq2", "apeglm"),
+          startTimeout = 1800)
+```
+
+# Submitting BiocJobs jobs
+
+`submitJob()` takes a `BiocJob`, or a package and a job name as in
+`submitJob("<package>", "<job>", values = ...)`, and the values of the
+job's inputs and options. An input given as a local file is uploaded to
+the pod, one given as an `http`, `https` or `ftp` URL is downloaded by the
+pod with `curl`, and options left out take the defaults the job declares.
+
+```{r submit, eval = FALSE}
+spec <- BiocJobs::readJob("deseq2-differential-expression.yaml")
+job <- submitJob(spec, values = list(
+    counts = "https://example.org/counts.tsv", coldata = "coldata.tsv",
+    contrast_factor = "condition",
+    contrast_numerator = "treated", contrast_denominator = "control"
+))
+job
+```
+
+The image defaults to the job's `container`; pass `image` when the job
+declares none. It needs R, BiocJobs, the package declaring the job and,
+for URL inputs, `curl`. `submitJob()` returns once the inputs are
+uploaded and the job's command has started, and deletes the Job again if
+it fails before that. The script
+`system.file("examples", "deseq2-job.R", package = "BiocKube")` runs the
+DESeq2 example job of BiocJobs with its test data.
+
+## Following a job and collecting outputs
+
+```{r follow, eval = FALSE}
+jobStatus(job)
+jobLogs(job, follow = TRUE)
+waitJob(job, timeout = 3600)
+outputs <- jobOutputs(job, dir = "results")
+```
+
+`waitJob()` returns when the job has succeeded. A job that fails signals
+an error of class `biockube_job_failed`, and one that does not finish in
+time an error of class `biockube_job_timeout`. `jobLogs(follow = TRUE)`
+prints the log as it grows. `jobOutputs()` writes the outputs to `dir`,
+returns their paths, and lets the pod exit; a pod whose outputs are not
+collected exits `keep` seconds after the job ends (a `submitJob()`
+argument, one day by default).
+
+## Reattaching, listing and deleting
+
+A job outlives the session that submitted it. `KubeJob()` finds it again
+by name, which needs permission to get Secrets in the namespace.
+
+```{r reattach, eval = FALSE}
+job <- KubeJob("deseq2-differential-expression-3f9a1c07d2")
+listJobs()
+deleteJob(job)
+```
+
+# What runs in the cluster
+
+`bpstart()` creates a ConfigMap `biockube-<id>` with the pod scripts, a
+Secret with the session token and one pod per worker, all labelled
+`app.kubernetes.io/managed-by: BiocKube`. Deleting a `biockube-<id>`
+ConfigMap removes its session. The other ConfigMaps with that label belong
+to jobs and go with `deleteJob()`.
+
+```{r leftovers, eval = FALSE}
+kube::kube_get("configmaps",
+               selector = c("app.kubernetes.io/managed-by" = "BiocKube"))
+kube::kube_delete("configmaps", "biockube-1a2b3c4d")
+```
+
+`submitJob()` creates a Job from `BiocJobs::kubernetesJob()`, with a
+ConfigMap and a Secret it owns. Each pod runs an HTTP server in base R
+that the session reaches through the API server's pod proxy, so the
+session needs no other network access to the cluster.
+
+The user needs these permissions in the namespace: `pods` (create, get,
+list, watch), `pods/log` (get), `pods/proxy` (get, create, update,
+delete), `configmaps` (create, get, delete), `secrets` (create, get,
+delete), `jobs` in group `batch` (create, get, list, patch, delete) and,
+optionally, `events` (list). `kube::kube_can_i()` checks one, as in
+`kube::kube_can_i("create", "pods", subresource = "proxy")`.
+
+# Security
+
+- The session reaches pods through the API server's pod proxy. Every
+  request except the readiness probe must carry a random per-session
+  token. The pod port is open to the cluster network and the API server
+  reaches it over plain HTTP; restrict it with a NetworkPolicy where
+  needed. Pods mount no service account token.
+- Worker pods run the R code they receive: anyone who can read the
+  session's Secret and use `pods/proxy` in the namespace can run code in
+  them.
+- Anyone who can create or modify pods in the namespace can pose as a
+  worker or a job's pod: the session unserializes what a worker returns
+  and uploads a job's inputs to its pod. Use only namespaces whose pod
+  creators you trust.
+- `KubeParam()` `env` values are written in plain text into the pod spec,
+  which anyone who can get pods in the namespace can read; do not pass
+  secrets that way.
+- Pods run as the image's user without `runAsNonRoot`, so namespaces that
+  enforce the `restricted` Pod Security Standard reject them.
+
+# Session information
+
+```{r session}
+sessionInfo()
+```
